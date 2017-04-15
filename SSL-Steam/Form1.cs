@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -22,11 +23,9 @@ namespace SSL_Steam
             public int Right;
             public int Bottom;
         }
-
         [DllImport("user32.dll", SetLastError = true)]
-        static extern bool GetWindowRect(IntPtr hWnd, ref RECT Rect);
-        [DllImport("user32.dll", SetLastError = true)]
-        static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int Width, int Height, bool Repaint);
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool GetWindowRect(IntPtr hWnd, out RECT Rect);
         [DllImport("user32.dll")]
         public static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vlc);
         [DllImport("user32.dll")]
@@ -50,6 +49,8 @@ namespace SSL_Steam
         {
             GetShellshockSize();
             CreateControls();
+            //2 = Ctrl
+            //4 = Shift
             RegisterHotKey(this.Handle, 1230, 2, (int)Keys.Left);
             RegisterHotKey(this.Handle, 1231, 2, (int)Keys.Right);
             RegisterHotKey(this.Handle, 1232, 2, (int)Keys.Up);
@@ -172,36 +173,42 @@ namespace SSL_Steam
         private void GetShellshockSize()
         {
             Process[] processes = Process.GetProcessesByName("ShellShockLive");
-            RECT Rect = new RECT();
             if (processes.Length == 0)
             {
                 MessageBox.Show("Please launch ShellShock Live before trying to use aimbot", "Game not running");
                 Application.Exit();
                 return;
             }
-            foreach (Process p in processes)
+            else
             {
-                IntPtr handle = p.MainWindowHandle;
-                GetWindowRect(handle, ref Rect);
+                RECT Rect = new RECT();
+                foreach (Process p in processes)
+                {
+                    IntPtr handle = p.MainWindowHandle;
+                    if (!GetWindowRect(handle, out Rect)) throw new Win32Exception();
+                }
+                this.Top = Rect.Top;
+                this.Left = Rect.Left - 150;
+                this.Width = (Rect.Right - Rect.Left) + 150;
+                this.Height = (Rect.Bottom - Rect.Top);
             }
-            this.Top = Rect.Top;
-            this.Left = Rect.Left - 150;
-            this.Width = (Rect.Right - Rect.Left) + 150;
-            this.Height = (Rect.Bottom - Rect.Top);
         }
         PictureBox AimingContainer = new PictureBox();
         TrackBar AngleTrack = new TrackBar();
         TrackBar StrengthTrack = new TrackBar();
         Label StrengthLbl = new Label();
         Label AngleLbl = new Label();
+        CheckBox TMCB = new CheckBox();
+        ComboBox VariationCB = new ComboBox();
         private void CreateControls()
         {
+            this.FormBorderStyle = FormBorderStyle.FixedSingle;
+            this.MaximizeBox = false;
             PictureBox LeftContainer = new PictureBox();
             LeftContainer.Location = new Point(0, 0);
             LeftContainer.Height = this.Height;
             LeftContainer.Width = 150;
             LeftContainer.BackColor = SystemColors.Control;
-            //
             AimingContainer.Location = new Point(150,0);
             AimingContainer.Height = this.Height;
             AimingContainer.Width = this.Width - 150;
@@ -213,7 +220,6 @@ namespace SSL_Steam
             TankLocation.MouseDown += Tank_MouseDown;
             TankLocation.MouseUp += Tank_MouseUp;
             TankLocation.MouseMove += Tank_MouseMove;
-            CheckBox TMCB = new CheckBox();
             TMCB.Location = new Point(15, 10);
             TMCB.Size = new Size(104, 17);
             TMCB.Checked = true;
@@ -235,7 +241,15 @@ namespace SSL_Steam
             StrengthLbl.Location = new Point(25, 635);
             StrengthLbl.Text = "0";
             StrengthLbl.Size = new Size(30, 30);
+            VariationCB.Location = new Point(15, 660);
+            VariationCB.Items.Add("Default/Single Shot");
+            VariationCB.Items.Add("Three-Ball");
+            VariationCB.Items.Add("Five-Ball");
+            VariationCB.SelectedIndex = 0;
+            VariationCB.DropDownStyle = ComboBoxStyle.DropDownList;
+            VariationCB.SelectedIndexChanged += DrawTracer;
             this.Text = "SSL-Steam";
+            this.Controls.Add(VariationCB);
             this.Controls.Add(TMCB);
             this.Controls.Add(StrengthLbl);
             this.Controls.Add(AngleLbl);
@@ -263,7 +277,7 @@ namespace SSL_Steam
             }
             StrengthLbl.Text = strength.ToString();
             AngleLbl.Text = angle.ToString();
-            DisplayAngle(GetAngle(strength, angle, dir));
+            DisplayAngle(GetAngle(strength, angle, dir, VariationCB.SelectedIndex.ToString()));
         }
         private void TopMostClick(object a, EventArgs b)
         {
@@ -281,12 +295,12 @@ namespace SSL_Steam
             int Lastx = -1;
             int Lasty = -1;
             List<KeyValuePair<int, int>> XYDict = new List<KeyValuePair<int, int>>();
-            if (variation == null)
+            power = power * 1.46;
+            if (variation == null || variation == "0")
             {
                 double _grav = 9.80665;
                 double theta = angle * (Math.PI / 180);
-                power = power * 1.46;
-                for (var i = 1; i < AimingContainer.Width;i++)
+                for (var i = 1; i < AimingContainer.Width; i++)
                 {
                     double dist = i;
                     double y = 0 + (dist * Math.Tan(theta)) - ((_grav * Math.Pow(dist, 2)) / (2 * (Math.Pow(power * Math.Cos(theta), 2))));
@@ -303,19 +317,108 @@ namespace SSL_Steam
                     }
                 }
             }
-            return XYDict;
+            else if (variation == "1") //3ball
+            {
+                for (var k = 0; k < 3; k++)
+                {
+                    int tangle = 0;
+                    switch (k)
+                    {
+                        case 0:
+                            tangle = angle - 5;
+                            break;
+                        case 1:
+                            tangle = angle;
+                            break;
+                        case 2:
+                            tangle = angle + 5;
+                            break;
+                    }
+                    double _grav = 9.80665;
+                    double theta = tangle * (Math.PI / 180);
+
+                    for (var i = 1; i < AimingContainer.Width; i++)
+                    {
+                        double dist = i;
+                        double y = 0 + (dist * Math.Tan(theta)) - ((_grav * Math.Pow(dist, 2)) / (2 * (Math.Pow(power * Math.Cos(theta), 2))));
+                        if (y > -1600)
+                        {
+                            if (direction == "left")
+                            {
+                                XYDict.Add(new KeyValuePair<int, int>(i * -1, Convert.ToInt32(y)));
+                            }
+                            else
+                            {
+                                XYDict.Add(new KeyValuePair<int, int>(i, Convert.ToInt32(y)));
+                            }
+                        }
+                    }
+                }
+            }
+            else if (variation == "2") //5ball
+            {
+                for (var k = 0; k < 5; k++)
+                {
+                    int tangle = 0;
+                    switch (k)
+                    {
+                        case 0:
+                            tangle = angle - 11;
+                            break;
+                        case 1:
+                            tangle = angle - 5;
+                            break;
+                        case 2:
+                            tangle = angle;
+                            break;
+                        case 3:
+                            tangle = angle + 5;
+                            break;
+                        case 4:
+                            tangle = angle + 11;
+                            break;
+                    }
+                    double _grav = 9.80665;
+                    double theta = tangle * (Math.PI / 180);
+
+                    for (var i = 1; i < AimingContainer.Width; i++)
+                    {
+                        double dist = i;
+                        double y = 0 + (dist * Math.Tan(theta)) - ((_grav * Math.Pow(dist, 2)) / (2 * (Math.Pow(power * Math.Cos(theta), 2))));
+                        if (y > -1600)
+                        {
+                            if (direction == "left")
+                            {
+                                XYDict.Add(new KeyValuePair<int, int>(i * -1, Convert.ToInt32(y)));
+                            }
+                            else
+                            {
+                                XYDict.Add(new KeyValuePair<int, int>(i, Convert.ToInt32(y)));
+                            }
+                        }
+                    }
+                }
+            }
+                return XYDict;
         }
         private void DisplayAngle(List<KeyValuePair<int,int>> d)
         {
             Size imgsize = AimingContainer.Image.Size;
+            AimingContainer.Image.Dispose();
             AimingContainer.Image = new Bitmap(imgsize.Width, imgsize.Height);
-            for(var i = 0; i < d.Count; i++)
+            Graphics g = Graphics.FromImage(AimingContainer.Image);
+            for (var i = 0; i < d.Count; i++)
             {
                 KeyValuePair<int, int> kp = d[i];
                 int x = TankLocation.Location.X + kp.Key - 150 + 4;
                 int y = TankLocation.Location.Y - kp.Value;
-                Graphics.FromImage(AimingContainer.Image).FillRectangle(Brushes.White, x, y, 1, 1);
+                g.FillRectangle(Brushes.White, x, y, 1, 1);
             }
+            string DisplayText = string.Format("{0},{1}", StrengthTrack.Value * -1, AngleTrack.Value*-1 > 90 ? (AngleTrack.Value+180) : AngleTrack.Value * -1);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g.DrawString(DisplayText, new Font("Lucida Console", 14), Brushes.LightGray, new PointF(TankLocation.Location.X - 187, TankLocation.Location.Y + 65));
             AimingContainer.Refresh();
         }
 
@@ -346,7 +449,6 @@ namespace SSL_Steam
                 ctrl.Top = (ctrl.Top + e.Y) - CursorY;
                 // Ensure moved control stays on top of anything it is dragged on to
                 ctrl.BringToFront();
-                DrawTracer();
             }
         }
     }
