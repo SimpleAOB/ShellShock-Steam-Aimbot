@@ -154,8 +154,11 @@ namespace SSL_Steam
             int Angle = GetProcInt(PowerAnglePtr, OffsetDict["Angle"]);
             int TankX = GetProcInt(HorizontalTankPtr, 0x40);
             int TankY = GetProcInt(VerticalTankPtr, 0x22c);
-            DrawTracer(Angle, Power);
-            MoveTankDot(TankX, TankY);
+            if (Power != -1 || Angle != -1 || TankX != -1 || TankY != -1)
+            {
+                DrawTracer(Angle, Power);
+                MoveTankDot(TankX, TankY);
+            }
         }
         private void DrawTracer(int angle, int power)
         {
@@ -492,36 +495,50 @@ namespace SSL_Steam
         Dictionary<string, int> OffsetDict = new Dictionary<string, int>();
         public int Pointer(int Address, int[] Offsets, string modulename)
         {
-            int BaseAddy = 0x0;
-            int Addy = -1;
+            try
+            {
+                int BaseAddy = 0x0;
+                int Addy = -1;
 
-            foreach (ProcessModule M in SSModules)
-            {
-                if (M.ModuleName.ToLower() == modulename)
+                foreach (ProcessModule M in SSModules)
                 {
-                    BaseAddy = M.BaseAddress.ToInt32() + Address;
-                    break;
+                    if (M.ModuleName.ToLower() == modulename)
+                    {
+                        BaseAddy = M.BaseAddress.ToInt32() + Address;
+                        break;
+                    }
                 }
-            }
-            IntPtr SSHandle = (Process.GetProcessesByName("ShellShockLive"))[0].Handle;
-            byte[] buff = new byte[4];
-            ReadProcessMemory(SSHandle, BaseAddy, buff, 4, 0);
-            BaseAddy = BitConverter.ToInt32(buff,0);
-            for (int i = 0; i < Offsets.Length; i++)
-            {
-                ReadProcessMemory(SSHandle, BaseAddy + Offsets[i], buff, 4, 0);
+                IntPtr SSHandle = (Process.GetProcessesByName("ShellShockLive"))[0].Handle;
+                byte[] buff = new byte[4];
+                ReadProcessMemory(SSHandle, BaseAddy, buff, 4, 0);
                 BaseAddy = BitConverter.ToInt32(buff, 0);
+                for (int i = 0; i < Offsets.Length; i++)
+                {
+                    ReadProcessMemory(SSHandle, BaseAddy + Offsets[i], buff, 4, 0);
+                    BaseAddy = BitConverter.ToInt32(buff, 0);
+                }
+                return BaseAddy;
+            } catch (Exception ex)
+            {
+                Log.Add("Exception in Pointer(): " + ex.Message);
+                return -1;
             }
-            return BaseAddy;
         }
         public int GetProcInt(int _baseaddy, int _offset)
         {
-            int result = -1;
-            byte[] buff = new byte[4];
-            IntPtr _handle = (Process.GetProcessesByName("ShellShockLive"))[0].Handle;
-            ReadProcessMemory(_handle, _baseaddy + _offset, buff, 4, 0);
-            result = BitConverter.ToInt32(buff, 0);
-            return result;
+            try
+            {
+                int result = -1;
+                byte[] buff = new byte[4];
+                IntPtr _handle = (Process.GetProcessesByName("ShellShockLive"))[0].Handle;
+                ReadProcessMemory(_handle, _baseaddy + _offset, buff, 4, 0);
+                result = BitConverter.ToInt32(buff, 0);
+                return result;
+            } catch (Exception ex)
+            {
+                Log.Add("Exception in GetProcInt: " + ex.Message);
+                return -1;
+            }
         }
     }
     class Log
