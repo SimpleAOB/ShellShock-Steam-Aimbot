@@ -149,7 +149,7 @@ namespace SSL_Steam
         {
             PowerAnglePtr = Pointer(0x010AEC98, new int[] { 0x0,0x14,0x14,0x60,0x384,0x10 }, "shellshocklive.exe");
             HorizontalTankPtr = Pointer(0x001F62c8, new int[] { 0x0,0x50,0x330,0x60,0x14}, "mono.dll");
-            VerticalTankPtr = Pointer(0x001f6994, new int[] { 0x1c,0x2a0,0x68,0x58,0x16c}, "mono.dll");
+            VerticalTankPtr = Pointer(0x01012D38, new int[] { 0x1c4,0x198,0x244,0x18,0x16c}, "shellshocklive.exe");
             int Power = GetProcInt(PowerAnglePtr, OffsetDict["Power"]);
             int Angle = GetProcInt(PowerAnglePtr, OffsetDict["Angle"]);
             int TankX = GetProcInt(HorizontalTankPtr, 0x40);
