@@ -25,7 +25,10 @@ namespace SSL_Steam
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         static extern bool GetWindowRect(IntPtr hWnd, out RECT Rect);
-        
+        [DllImport("user32.dll")]
+        public static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vlc);
+        [DllImport("user32.dll")]
+        public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
         public Form1()
         {
             InitializeComponent();
@@ -35,7 +38,69 @@ namespace SSL_Steam
         {
             GetShellshockSize();
             CreateControls();
+            RegisterHotKey(this.Handle, 1230, 2, (int)Keys.Left);
+            RegisterHotKey(this.Handle, 1231, 2, (int)Keys.Right);
+            RegisterHotKey(this.Handle, 1232, 2, (int)Keys.Up);
+            RegisterHotKey(this.Handle, 1233, 2, (int)Keys.Down);
         }
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x312)
+            {
+                Keys vk = (Keys)(((int)m.LParam >> 16) & 0xFFFF);
+                int fsModifiers = ((int)m.LParam & 0xFFFF);
+                if (vk == Keys.Left && fsModifiers == (2))
+                {
+                    Point curtank = TankLocation.Location;
+                    curtank.X -= 1;
+                    TankLocation.Location = curtank;
+                }
+                if (vk == Keys.Right && fsModifiers == (2))
+                {
+                    Point curtank = TankLocation.Location;
+                    curtank.X += 1;
+                    TankLocation.Location = curtank;
+                }
+                if (vk == Keys.Up && fsModifiers == (2))
+                {
+                    Point curtank = TankLocation.Location;
+                    curtank.Y -= 1;
+                    TankLocation.Location = curtank;
+                }
+                if (vk == Keys.Down && fsModifiers == (2))
+                {
+                    Point curtank = TankLocation.Location;
+                    curtank.Y += 1;
+                    TankLocation.Location = curtank;
+                }
+            }
+            base.WndProc(ref m);
+        }
+        int cursorX, CursorY;
+        bool Dragging;
+        private void Tank_MouseDown(object sender, MouseEventArgs e)
+        {
+            Dragging = true;
+            cursorX = e.X;
+            CursorY = e.Y;
+        }
+
+        private void Tank_MouseUp(object sender, MouseEventArgs e)
+        {
+            Dragging = false;
+        }
+
+        private void Tank_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (Dragging)
+            {
+                Control ctrl = (Control)sender;
+                ctrl.Left = (ctrl.Left + e.X) - cursorX;
+                ctrl.Top = (ctrl.Top + e.Y) - CursorY;
+                ctrl.BringToFront();
+            }
+        }
+        bool AutoPosition = true;
         ProcessModuleCollection SSModules;
         private void GetShellshockSize()
         {
@@ -97,6 +162,7 @@ namespace SSL_Steam
         Label StrengthLbl = new Label();
         Label AngleLbl = new Label();
         CheckBox TMCB = new CheckBox();
+        CheckBox AutoCB = new CheckBox();
         ComboBox VariationCB = new ComboBox();
         Timer MemoryCheckTimer = new Timer();
         private void CreateControls()
@@ -111,7 +177,7 @@ namespace SSL_Steam
             TankLocation.Image = new Bitmap(7, 7);
             Graphics.FromImage(TankLocation.Image).FillEllipse(Brushes.Orange, 0, 0, 7, 7);
             TankLocation.Refresh();
-            VariationCB.Location = new Point(10, 30);
+            VariationCB.Location = new Point(10, 50);
             VariationCB.Items.Add("Default/Single Shot");
             VariationCB.Items.Add("Three-Ball");
             VariationCB.Items.Add("Five-Ball");
@@ -128,6 +194,12 @@ namespace SSL_Steam
             TMCB.Checked = true;
             TMCB.Text = "Top Most Window";
             TMCB.Click += TopMostClick;
+            AutoCB.Location = new Point(10, 30);
+            AutoCB.Size = new Size(VariationCB.Width, 20);
+            AutoCB.Padding = new Padding(5,0,0,0);
+            AutoCB.Checked = true;
+            AutoCB.Text = "Auto Position";
+            AutoCB.Click += AutoCbClick;
             //VariationCB.SelectedIndexChanged += DrawTracer;
             OffsetDict.Add("Power", 0x20);
             OffsetDict.Add("Angle", 0x1c);
@@ -137,10 +209,29 @@ namespace SSL_Steam
             this.Text = "SSL-Steam";
             this.Controls.Add(VariationCB);
             this.Controls.Add(TMCB);
+            this.Controls.Add(AutoCB);
             this.Controls.Add(AimingContainer);
             this.TopMost = true;
             Log.Add("Controls loaded");
         }
+
+        private void AutoCbClick(object sender, EventArgs e)
+        {
+            if (!AutoCB.Checked)
+            {
+                AutoPosition = false;
+                TankLocation.MouseDown += Tank_MouseDown;
+                TankLocation.MouseUp += Tank_MouseUp;
+                TankLocation.MouseMove += Tank_MouseMove;
+            } else
+            {
+                AutoPosition = true;
+                TankLocation.MouseDown -= Tank_MouseDown;
+                TankLocation.MouseUp -= Tank_MouseUp;
+                TankLocation.MouseMove -= Tank_MouseMove;
+            }
+        }
+
         void DrawTracer()
         {
             //DrawTracer(null, null);
@@ -148,16 +239,20 @@ namespace SSL_Steam
         private void MemoryCheck_Tick(object sender, EventArgs e)
         {
             PowerAnglePtr = Pointer(0x010AEC98, new int[] { 0x0,0x14,0x14,0x60,0x384,0x10 }, "shellshocklive.exe");
-            HorizontalTankPtr = Pointer(0x001F62c8, new int[] { 0x0,0x50,0x330,0x60,0x14}, "mono.dll");
-            VerticalTankPtr = Pointer(0x01012D38, new int[] { 0x1c4,0x198,0x244,0x18,0x16c}, "shellshocklive.exe");
             int Power = GetProcInt(PowerAnglePtr, OffsetDict["Power"]);
             int Angle = GetProcInt(PowerAnglePtr, OffsetDict["Angle"]);
-            int TankX = GetProcInt(HorizontalTankPtr, 0x40);
-            int TankY = GetProcInt(VerticalTankPtr, 0x22c);
-            if (Power != -1 || Angle != -1 || TankX != -1 || TankY != -1)
+            if (Power != -1 || Angle != -1 )
             {
                 DrawTracer(Angle, Power);
-                MoveTankDot(TankX, TankY);
+                if (AutoPosition)
+                {
+                    HorizontalTankPtr = Pointer(0x001F62c8, new int[] { 0x0, 0x50, 0x330, 0x60, 0x14 }, "mono.dll");
+                    VerticalTankPtr = Pointer(0x010AEF14, new int[] { 0x54, 0x18, 0x14, 0x18, 0x16c }, "shellshocklive.exe");
+                    int TankX = GetProcInt(HorizontalTankPtr, 0x40);
+                    int TankY = GetProcInt(VerticalTankPtr, 0x22c);
+                    if (TankX != -1 || TankY != -1) MoveTankDot(TankX, TankY);
+
+                }
             }
         }
         private void DrawTracer(int angle, int power)
