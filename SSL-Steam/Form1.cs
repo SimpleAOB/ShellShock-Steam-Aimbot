@@ -33,7 +33,7 @@ namespace SSL_Steam
         {
             InitializeComponent();
         }
-        Log Log = new Log();
+        Log Log = new Log("ssl-steam");
         private void Form1_Load(object sender, EventArgs e)
         {
             GetShellshockSize();
@@ -164,7 +164,10 @@ namespace SSL_Steam
         CheckBox TMCB = new CheckBox();
         CheckBox AutoCB = new CheckBox();
         ComboBox VariationCB = new ComboBox();
-        Timer MemoryCheckTimer = new Timer();
+        Timer TracerCheckTimer = new Timer();
+        Timer SignatureTimer = new Timer();
+
+        //TextBox GravTest = new TextBox();
         private void CreateControls()
         {
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -203,10 +206,16 @@ namespace SSL_Steam
             //VariationCB.SelectedIndexChanged += DrawTracer;
             OffsetDict.Add("Power", 0x20);
             OffsetDict.Add("Angle", 0x1c);
-            MemoryCheckTimer.Tick += MemoryCheck_Tick;
-            MemoryCheckTimer.Interval = 10;
-            MemoryCheckTimer.Enabled = true;
+            TracerCheckTimer.Tick += TracerCheck_Tick;
+            TracerCheckTimer.Interval = 10;
+            TracerCheckTimer.Enabled = true;
+            SignatureTimer.Tick += SignatureTimer_Tick;
+            SignatureTimer.Interval = 1000;
+            SignatureTimer.Enabled = true;
+            //GravTest.Location = new Point(500, 500);
+            //GravTest.Text = "1.48";
             this.Text = "SSL-Steam";
+            //this.Controls.Add(GravTest);
             this.Controls.Add(VariationCB);
             this.Controls.Add(TMCB);
             this.Controls.Add(AutoCB);
@@ -214,7 +223,87 @@ namespace SSL_Steam
             this.TopMost = true;
             Log.Add("Controls loaded");
         }
+        SigControlsTLoc SSCTL = new SigControlsTLoc();
+        private void SignatureTimer_Tick(object sender, EventArgs e)
+        {
+            if (AutoPosition)
+            {
+                if (!SSCTL.HasScanned)
+                {
+                    foreach (Control c in SSCTL.Display())
+                    {
+                        this.Controls.Add(c);
+                        if (c is GroupBox)
+                        {
+                            Controls.SetChildIndex(c, 1);
+                        } else
+                        {
+                            Controls.SetChildIndex(c, 0);
+                        }
+                    }
+                }
+                else if (SSCTL.DecidedAddress != -1)
+                {
+                    if (SignatureTimer.Interval != 10) SignatureTimer.Interval = 10;
 
+                    int da = SSCTL.DecidedAddress;
+                    int TankX = GetProcInt("ShellShockLive", da);
+                    int TankY = GetProcInt("ShellShockLive", da + 4);
+                    if (TankX != -1 || TankY != -1)
+                    {
+                        float sx = BitConverter.ToSingle(BitConverter.GetBytes(TankX), 0);
+                        float sy = BitConverter.ToSingle(BitConverter.GetBytes(TankY), 0);
+                        if (sy < -4.2f || sy > 0.9f || sx < -5f || sy > 5f)
+                        {
+                            if (sy != -1000f && sx != -1000f)
+                            {
+                                SSCTL.StatusText("Game no longer in progress. Scan Again");
+                            }
+                            else
+                            {
+                                SSCTL.StatusText("Not your turn. Waiting to move");
+                            }
+                        }
+                        else
+                        {
+                            if (sy.ToString("G", System.Globalization.CultureInfo.InvariantCulture).IndexOf('E') != -1 || sx.ToString("G", System.Globalization.CultureInfo.InvariantCulture).IndexOf('E') != -1)
+                            {
+                                SSCTL.StatusText("Game no longer in progress. Scan Again");
+                            } else
+                            {
+                                MoveTankDot(TankX, TankY);
+                            }
+                            
+                        }
+                    }
+                }
+            }
+        }
+        SigControlsAS SSCAS = new SigControlsAS();
+        private void TracerCheck_Tick(object sender, EventArgs e)
+        {
+            if (!SSCAS.HasScanned)
+            {
+                foreach (Control c in SSCAS.Display())
+                {
+                    this.Controls.Add(c);
+                    if (c is GroupBox)
+                    {
+                        Controls.SetChildIndex(c, 1);
+                    }
+                    else
+                    {
+                        Controls.SetChildIndex(c, 0);
+                    }
+                }
+            } else
+            {
+                int da = SSCAS.DecidedAddress;
+                int Angle = GetProcInt("ShellShockLive", da);
+                int Strength = GetProcInt("ShellShockLive", da+4);
+                DrawTracer(Angle, Strength);
+            }
+        }
         private void AutoCbClick(object sender, EventArgs e)
         {
             if (!AutoCB.Checked)
@@ -223,38 +312,17 @@ namespace SSL_Steam
                 TankLocation.MouseDown += Tank_MouseDown;
                 TankLocation.MouseUp += Tank_MouseUp;
                 TankLocation.MouseMove += Tank_MouseMove;
+                SSCTL.Disable();
             } else
             {
                 AutoPosition = true;
                 TankLocation.MouseDown -= Tank_MouseDown;
                 TankLocation.MouseUp -= Tank_MouseUp;
                 TankLocation.MouseMove -= Tank_MouseMove;
+                SSCTL.Enable();
             }
-        }
-
-        void DrawTracer()
-        {
-            //DrawTracer(null, null);
-        }
-        private void MemoryCheck_Tick(object sender, EventArgs e)
-        {
-            PowerAnglePtr = Pointer(0x010AEC98, new int[] { 0x0,0x14,0x14,0x60,0x384,0x10 }, "shellshocklive.exe");
-            int Power = GetProcInt(PowerAnglePtr, OffsetDict["Power"]);
-            int Angle = GetProcInt(PowerAnglePtr, OffsetDict["Angle"]);
-            if (Power != -1 || Angle != -1 )
-            {
-                DrawTracer(Angle, Power);
-                if (AutoPosition)
-                {
-                    HorizontalTankPtr = Pointer(0x001F62c8, new int[] { 0x0, 0x50, 0x330, 0x60, 0x14 }, "mono.dll");
-                    VerticalTankPtr = Pointer(0x010AEF14, new int[] { 0x54, 0x18, 0x14, 0x18, 0x16c }, "shellshocklive.exe");
-                    int TankX = GetProcInt(HorizontalTankPtr, 0x40);
-                    int TankY = GetProcInt(VerticalTankPtr, 0x22c);
-                    if (TankX != -1 || TankY != -1) MoveTankDot(TankX, TankY);
-
-                }
-            }
-        }
+        }        
+        
         private void DrawTracer(int angle, int power)
         {
             DisplayAngle(GetAngle(power, angle, VariationCB.SelectedIndex.ToString()));
@@ -568,12 +636,19 @@ namespace SSL_Steam
             {
                 float sx = BitConverter.ToSingle(BitConverter.GetBytes(x), 0);
                 float sy = BitConverter.ToSingle(BitConverter.GetBytes(y), 0);
-                float f = sy + 4.099999905f;
-                f = f * 1000000000000000;
-                double d = Convert.ToDouble(f * 0.0000000000001683673436618855f);
-                int i = Convert.ToInt32(d);
-                TankLocation.Location = new Point((int)(sx * 1.68) - 3, ((int)(Convert.ToInt32(d) - 895) * -1));
-            } catch (OverflowException ox)
+
+                float fy = sy + 4.099999905f;
+                fy = fy * 1000000000000000;
+                double dy = Convert.ToDouble(fy * 0.0000000000001683673436618855f);
+                int iy = Convert.ToInt32(dy);
+
+                float fx = sx + 4.099999905f;
+                fx = fx * 1000000000000000;
+                double dx = Convert.ToDouble(fx * 0.0000000000001683673436745106f);
+                int ix = Convert.ToInt32(dx);
+
+                TankLocation.Location = new Point((Convert.ToInt32(dx) + 145), ((int)(Convert.ToInt32(dy) - 900) * -1));
+            } catch (Exception ox)
             {
                 Log.Add("Tried to move dot to invalid location");
             }
@@ -582,11 +657,10 @@ namespace SSL_Steam
         {
             Log.Add("Exiting");
             Log.Dump();
+            SSCTL.DumpLog();
             Application.Exit();
         }
         int PowerAnglePtr = -1;
-        int HorizontalTankPtr = -1;
-        int VerticalTankPtr = -1;
         Dictionary<string, int> OffsetDict = new Dictionary<string, int>();
         public int Pointer(int Address, int[] Offsets, string modulename)
         {
@@ -619,6 +693,22 @@ namespace SSL_Steam
                 return -1;
             }
         }
+        public int GetProcInt(string module, int offset)
+        {
+            try
+            {
+                int result = -1;
+                byte[] buff = new byte[4];
+                IntPtr _handle = (Process.GetProcessesByName(module))[0].Handle;
+                ReadProcessMemory(_handle, offset, buff, 4, 0);
+                result = BitConverter.ToInt32(buff, 0);
+                return result;
+            } catch (Exception ex)
+            {
+                Log.Add("Exception in GetProcInt: " + ex.Message);
+                return -1;
+            }
+        }
         public int GetProcInt(int _baseaddy, int _offset)
         {
             try
@@ -636,48 +726,282 @@ namespace SSL_Steam
             }
         }
     }
-    class Log
+    class SigControlsTLoc
     {
-        private Dictionary<string, string> ELog;
-        public Log()
+        Button AskToScanBtn = new Button();
+        Button WrongAddressBtn = new Button();
+        Label StatusLabel = new Label();
+        SigManager sigMgr;
+        Log SigLog = new Log("ssl-sig-tl");
+        List<int> AddrList = new List<int>();
+        public bool AutoPosition = false;
+        public bool HasScanned;
+        public int DecidedAddress = -1;
+        
+        private int scanStart = 0x00000000;
+        private int scanEnd = 0x70000000;
+        public SigControlsTLoc()
         {
-            ELog = new Dictionary<string, string>();
-            Add("------------------------------");
-            Add("Something not working? Message me on Discord: 'Simple_AOB#5526' with this log ready");
-            Add("------------------------------");
-            Add(Environment.OSVersion);
-            Add(Environment.Version);
+            init();
         }
-        private static long lastTimeStamp = DateTime.UtcNow.Ticks;
-        public static long UtcNowTicks
+        private void init()
         {
-            get
+            sigMgr = new SigManager(scanStart, scanEnd, "ShellShockLive");
+            sigMgr.AddSignature("Tank Location", "00 00 7A C4 00 00 7A C4");
+            AskToScanBtn.Text = "Scan";
+            AskToScanBtn.Click += ScanBtnClick;
+            AskToScanBtn.Location = new Point(10, 130);
+            AskToScanBtn.Size = new Size(120, 20);
+            AskToScanBtn.BackColor = Color.Transparent;
+            WrongAddressBtn.Text = "Try Another Address";
+            WrongAddressBtn.Click += WrongAddressBtnClick;
+            WrongAddressBtn.Location = new Point(10, 150);
+            WrongAddressBtn.Size = new Size(120, 20);
+            WrongAddressBtn.BackColor = Color.Transparent;
+            WrongAddressBtn.Enabled = false;
+            StatusLabel.Text = "Ready To Scan for Tank Tracker";
+            StatusLabel.Size = new Size(120, 40);
+            StatusLabel.TextAlign = ContentAlignment.MiddleCenter;
+            StatusLabel.Location = new Point(10, 90);
+            Green(StatusLabel);
+        }
+        public void Disable()
+        {
+            AutoPosition = false;
+            AskToScanBtn.Enabled = false;
+            WrongAddressBtn.Enabled = false;
+            StatusText("Auto Positioning Disabled");
+            Red(StatusLabel);
+        }
+        public void Enable()
+        {
+            AutoPosition = true;
+            AskToScanBtn.Enabled = true;
+            WrongAddressBtn.Enabled = (DecidedAddress != 1) ? true : false;
+            StatusText("Ready To Scan");
+            Green(StatusLabel);
+        }
+        public void StatusText(string t)
+        {
+            StatusLabel.Text = t;
+        }
+        public List<Control> Display()
+        {
+            List<Control> cc = new List<Control>();
+            cc.Add(AskToScanBtn);
+            cc.Add(WrongAddressBtn);
+            cc.Add(StatusLabel);
+            return cc;
+        }
+        private Label Red(Label l)
+        {
+            l.ForeColor = Color.Red;
+            return l;
+        }
+        private Label Green(Label l)
+        {
+            l.ForeColor = Color.Green;
+            return l;
+        }
+        private Label Black(Label l)
+        {
+            l.ForeColor = Color.Black;
+            return l;
+        }
+        private void ScanBtnClick (object a, object b)
+        {
+            StatusText("Scan In Progress");
+            AskToScanBtn.Enabled = false;
+            if (sigMgr.ScanForSignatures("Tank Location"))
             {
-                long original, origts;
-                do
-                {
-                    original = lastTimeStamp;
-                    long now = DateTime.UtcNow.Ticks;
-                    origts = Math.Max(now, original + 1);
-                } while (System.Threading.Interlocked.CompareExchange
-                             (ref lastTimeStamp, origts, original) != original);
-
-                return origts;
+                HasScanned = true;
+                DecideAddress();
+                AskToScanBtn.Enabled = true;
+            } else
+            {
+                StatusText("SS1: Error occured during scan");
+                SigLog.Add(sigMgr.LastError);
             }
         }
-        public void Add(object msg)
+        private void WrongAddressBtnClick(object a, object b)
         {
-            ELog.Add(UtcNowTicks.ToString(), msg.ToString());
+            InvalidAddress(DecidedAddress);
         }
-        public void Dump()
+        private void DecideAddress(bool fromInvalid = false)
         {
-            using (StreamWriter sw = new StreamWriter(Environment.CurrentDirectory + @"\ssl-steam.log"))
+            List<int> adrs = (fromInvalid) ? AddrList : sigMgr.GetAddressList();
+            if (adrs.Count == 0)
             {
-                foreach (KeyValuePair<string, string> kp in ELog)
+                StatusText("DA1: No compatible addresses found. \r\nTry Again");
+                DecidedAddress = -1;
+                Red(StatusLabel);
+                WrongAddressBtn.Enabled = false;
+                return;
+            }
+            else
+            {
+                if (adrs.Count == 1)
                 {
-                    sw.WriteLine(string.Format("{0}>> {1}", kp.Key, kp.Value));
+                    DecidedAddress = scanStart + adrs[0];
+                    string t = ((adrs[0].ToString("x8"))[7] == 'c') ? "a prefered" : "an";
+                    StatusText(string.Format("Found {0} address. AutoPos enabled", t));
+                    Black(StatusLabel);
+                }
+                else
+                {
+                    //Addresses ending in c (hexdec form) have a high probability of working during my tests. Program will prefer c endings
+                    List<int> EndsInC = new List<int>();
+                    for (var i = 0; i < adrs.Count; i++)
+                    {
+                        if ((adrs[i].ToString("x8"))[7] == 'c')
+                        {
+                            EndsInC.Add(i);
+                        }
+                    }
+                    if (EndsInC.Count == 0)
+                    {
+                        DecidedAddress = scanStart + adrs[0];
+                        StatusText("No prefered addresses found. AutoPos enabled");
+                    }
+                    else
+                    {
+                        DecidedAddress = scanStart + adrs[EndsInC[0]];
+                        StatusText("Preferd address found. AutoPos enabled");
+                    }
+                    Black(StatusLabel);
                 }
             }
+            WrongAddressBtn.Enabled = true;
+            AddrList = adrs;
+        }
+        /// <summary>
+        /// Called by the user manually. Basically it tells the SSC class to throw out the named address and return another if any exist.
+        /// </summary>
+        /// <param name="addr"></param>
+        public void InvalidAddress(int addr)
+        {
+            int index = AddrList.IndexOf(addr);
+            if (index != -1)
+            {
+                AddrList.RemoveAt(index);
+            }
+            DecideAddress(true);
+        }
+        public void DumpLog()
+        {
+            SigLog.Dump();
+        }
+    }
+    class SigControlsAS
+    {
+        Button AskToScanBtn = new Button();
+        Label StatusLabel = new Label();
+        SigManager sigMgr;
+        Log SigLog = new Log("ssl-sig-as");
+        List<int> AddrList = new List<int>();
+        public bool HasScanned;
+        public int DecidedAddress = -1;
+
+        private int scanStart = 0x00000000;
+        private int scanEnd = 0x50000000;
+        public SigControlsAS()
+        {
+            init();
+        }
+        private void init()
+        {
+            sigMgr = new SigManager(scanStart, scanEnd, "ShellShockLive", true);
+            sigMgr.AddSignature("AngleStrength", "3B 01 00 00 64 00 00 00");
+            AskToScanBtn.Text = "Scan";
+            AskToScanBtn.Click += ScanBtnClick;
+            AskToScanBtn.Location = new Point(10, 230);
+            AskToScanBtn.Size = new Size(120, 20);
+            AskToScanBtn.BackColor = Color.Transparent;
+            StatusLabel.Text = "Ready To Scan for Tracer";
+            StatusLabel.Size = new Size(120, 40);
+            StatusLabel.TextAlign = ContentAlignment.MiddleCenter;
+            StatusLabel.Location = new Point(10, 190);
+            Green(StatusLabel);
+        }
+        public void Disable()
+        {
+            AskToScanBtn.Enabled = false;
+            StatusText("Auto Positioning Disabled");
+            Red(StatusLabel);
+        }
+        public void Enable()
+        {
+            AskToScanBtn.Enabled = true;
+            StatusText("Ready To Scan");
+            Green(StatusLabel);
+        }
+        public void StatusText(string t)
+        {
+            StatusLabel.Text = t;
+        }
+        public List<Control> Display()
+        {
+            List<Control> cc = new List<Control>();
+            cc.Add(AskToScanBtn);
+            cc.Add(StatusLabel);
+            return cc;
+        }
+        private Label Red(Label l)
+        {
+            l.ForeColor = Color.Red;
+            return l;
+        }
+        private Label Green(Label l)
+        {
+            l.ForeColor = Color.Green;
+            return l;
+        }
+        private Label Black(Label l)
+        {
+            l.ForeColor = Color.Black;
+            return l;
+        }
+        private void ScanBtnClick(object a, object b)
+        {
+            StatusText("Scan In Progress");
+            AskToScanBtn.Enabled = false;
+            if (sigMgr.ScanForSignatures("AngleStrength"))
+            {
+                HasScanned = true;
+                DecideAddress();
+                AskToScanBtn.Enabled = true;
+            }
+            else
+            {
+                StatusText("SS1: Error occured during scan");
+                SigLog.Add(sigMgr.LastError);
+            }
+        }
+        private void DecideAddress(bool fromInvalid = false)
+        {
+            List<int> adrs = (fromInvalid) ? AddrList : sigMgr.GetAddressList();
+            if (adrs.Count == 0)
+            {
+                StatusText("DA1: No compatible addresses found. \r\nTry Again");
+                DecidedAddress = -1;
+                Red(StatusLabel);
+                return;
+            }
+            else
+            {
+                if (adrs.Count == 1)
+                {
+                    DecidedAddress = scanStart + adrs[0];
+                    string t = ((adrs[0].ToString("x8"))[7] == 'c') ? "a prefered" : "an";
+                    StatusText(string.Format("Found {0} address. Tracer enabled", t));
+                    Black(StatusLabel);
+                }
+            }
+            AddrList = adrs;
+        }
+        public void DumpLog()
+        {
+            SigLog.Dump();
         }
     }
 }

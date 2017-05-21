@@ -35,7 +35,7 @@
             // TankLocation
             // 
             this.TankLocation.BackColor = System.Drawing.Color.Lime;
-            this.TankLocation.Location = new System.Drawing.Point(1019, 172);
+            this.TankLocation.Location = new System.Drawing.Point(218, 12);
             this.TankLocation.Name = "TankLocation";
             this.TankLocation.Size = new System.Drawing.Size(7, 7);
             this.TankLocation.TabIndex = 0;
