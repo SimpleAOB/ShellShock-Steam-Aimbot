@@ -11,6 +11,8 @@ using System.Windows.Forms;
 // 
 //      1.0.0 
 //          - First version written and release. 
+//      2.0.0
+//          - Simple_AOB update and release
 // [ CREDITS ] ---------------------------------------------------------------------------- 
 // 
 // sigScan is based on the FindPattern code written by 
@@ -23,92 +25,6 @@ namespace SSL_Steam
 {
     public class SimpleScan_NoMem
     {
-
-        private int mStart;
-        private int mEnd;
-        private int mSize;
-        private Process Target;
-        private string Mask;
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="read">Address where to start reading</param>
-        /// <param name="size">Address where to stop reading</param>
-        /// <param name="t">Target to dump from</param>
-        public SimpleScan_NoMem(int start, int end, string t)
-        {
-            this.Target = GetProcess(t);
-            this.mEnd = end;
-            this.mStart = start;
-            this.mSize = end - start;
-        }
-        private Process GetProcess(string str)
-        {
-            //Assumes the result at index 0 is the target
-            if (Process.GetProcessesByName(str)[0].Handle != null) return Process.GetProcessesByName(str)[0];
-            return null;
-        }
-        public List<int> PatternScan(string name, string sig, string mask, bool scanExecuteOnly)
-        {
-            List<int> results = new List<int>();
-            Target.PriorityClass = ProcessPriorityClass.Idle;
-            List<Thread> t = new List<Thread>();
-            //Logical Processor Count
-            int LP = Environment.ProcessorCount;
-            //int LP = 1;
-            int ThreadBlock = mSize / LP;
-            //int ThreadBlock = mSize;
-            int loc = 0;
-            for (var i = 0; i < LP; i++)
-            {
-                PatternScanThreads pst = new PatternScanThreads(i, name, sig, mask, loc, loc + ThreadBlock, scanExecuteOnly, Target.Handle);
-                ThreadStart ts = new ThreadStart(pst.Start);
-                Thread newThread = new Thread(ts);
-                newThread.Priority = ThreadPriority.Highest;
-                newThread.Start();
-                t.Add(newThread);
-                loc += ThreadBlock;
-            }
-            bool AllDone = false;
-            int NumDone = 0;
-            while (!AllDone)
-            {
-                if (NumDone == t.Count)
-                {
-                    AllDone = true;
-                    break;
-                }
-                for (var i = 0; i < t.Count; i++)
-                {
-                    string fn = Environment.CurrentDirectory + string.Format("\\{0}.pstr.{1}", name, i);
-                    try
-                    {
-                        if (File.Exists(fn))
-                        {
-                            string[] lines = File.ReadAllLines(fn);
-                            foreach (string l in lines)
-                            {
-                                if (l != "00000000")
-                                {
-                                    results.Add(Convert.ToInt32(l));
-                                }
-                            }
-                            NumDone++;
-                            File.Delete(fn);
-                        }
-                    } catch (Exception ex)
-                    {
-
-                    }
-                }
-            }
-            Target.PriorityClass = ProcessPriorityClass.Normal;
-            return results;
-        }
-
-       
-    }
-    class PatternScanThreads {
         // REQUIRED CONSTS
         const int PROCESS_QUERY_INFORMATION = 0x0400;
         const int MEM_COMMIT = 0x00001000;
@@ -116,8 +32,6 @@ namespace SSL_Steam
         const int PROCESS_WM_READ = 0x0010;
 
         // REQUIRED METHODS
-        [DllImport("kernel32.dll")]
-        public static extern bool ReadProcessMemory(int hProcess, int lpBaseAddress, byte[] lpBuffer, int dwSize, ref int lpNumberOfBytesRead);
 
         [DllImport("kernel32.dll")]
         static extern void GetSystemInfo(out SYSTEM_INFO lpSystemInfo);
@@ -152,6 +66,149 @@ namespace SSL_Steam
             public ushort processorRevision;
         }
 
+        private int mStart;
+        private int mEnd;
+        private int mSize;
+        private Process Target;
+        private string Mask;
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="read">Address where to start reading</param>
+        /// <param name="size">Address where to stop reading</param>
+        /// <param name="t">Target to dump from</param>
+        public SimpleScan_NoMem(int start, int end, string t)
+        {
+            this.Target = GetProcess(t);
+            this.mEnd = end;
+            this.mStart = start;
+            this.mSize = end - start;
+        }
+        private Process GetProcess(string str)
+        {
+            //Assumes the result at index 0 is the target
+            if (Process.GetProcessesByName(str)[0].Handle != null) return Process.GetProcessesByName(str)[0];
+            return null;
+        }
+        public List<int> PatternScan(string name, string sig, string mask, bool scanExecuteOnly)
+        {
+            List<int> results = new List<int>();
+            Target.PriorityClass = ProcessPriorityClass.Idle;
+            List<Thread> t = new List<Thread>();
+
+            //Logical Processor Count
+            int LP = Environment.ProcessorCount;
+            int ThreadBlock = mSize / LP;
+            int loc = 0;
+            //
+            //lets fuck some shit up
+            //
+            SYSTEM_INFO sys_info = new SYSTEM_INFO();
+            GetSystemInfo(out sys_info);
+
+            IntPtr proc_min_address = sys_info.minimumApplicationAddress;
+
+            int proc_min_address_l = mStart;
+            int proc_max_address_l = mEnd;
+
+            List<string> Blocks = new List<string>();
+
+            MEMORY_BASIC_INFORMATION mem_basic_info = new MEMORY_BASIC_INFORMATION();
+            while (proc_min_address_l < proc_max_address_l)
+            {
+                VirtualQueryEx(Target.Handle, proc_min_address, out mem_basic_info, 28);
+                if (scanExecuteOnly)
+                {
+                    if (mem_basic_info.Protect == 0x40 && mem_basic_info.State == MEM_COMMIT)
+                    {
+                        Blocks.Add(string.Format("{2};{0};{1}", mem_basic_info.BaseAddress, mem_basic_info.RegionSize, proc_min_address_l));
+                    }
+                }
+                else
+                {
+                    if (mem_basic_info.Protect == 0x04 && mem_basic_info.State == MEM_COMMIT)
+                    {
+                        Blocks.Add(string.Format("{2};{0};{1}", mem_basic_info.BaseAddress, mem_basic_info.RegionSize, proc_min_address_l));
+                    }
+                }
+
+                // move to the next memory chunk
+                proc_min_address_l += mem_basic_info.RegionSize;
+                proc_min_address = new IntPtr(proc_min_address_l);
+            }
+            int blocksperthread = (int)Math.Floor((double)Blocks.Count / (double)LP);
+            int blockstartassign = 0;
+            for (var i = 0; i < LP; i++)
+            {
+                List<string> BlocksForThread = new List<string>();
+                int startat = blockstartassign;
+                for (var j = 0; j < blocksperthread; j++, blockstartassign++)
+                {
+                    BlocksForThread.Add(Blocks[startat + j]);
+                }
+                if (i+1 == LP)
+                {
+                    int diff = Blocks.Count - blockstartassign;
+                    if (diff > 0)
+                    {
+                        while (diff > 0)
+                        {
+                            BlocksForThread.Add(Blocks[Blocks.Count - diff]);
+                            diff--;
+                        }
+                    }
+                }
+                PatternScanThreads pst = new PatternScanThreads(i, name, sig, mask, loc, loc + ThreadBlock, scanExecuteOnly, Target.Handle, BlocksForThread);
+                ThreadStart ts = new ThreadStart(pst.Start);
+                Thread newThread = new Thread(ts);
+                newThread.Priority = ThreadPriority.Highest;
+                newThread.Start();
+                t.Add(newThread);
+                loc += ThreadBlock;
+            }
+            bool AllDone = false;
+            int NumDone = 0;
+            while (!AllDone)
+            {
+                if (NumDone == t.Count)
+                {
+                    AllDone = true;
+                    break;
+                }
+                for (var i = 0; i < t.Count; i++)
+                {
+                    string fn = Environment.CurrentDirectory + string.Format("\\{0}.pstr.{1}", name, i);
+                    try
+                    {
+                        if (File.Exists(fn))
+                        {
+                            string[] lines = File.ReadAllLines(fn);
+                            foreach (string l in lines)
+                            {
+                                if (l != "00000000")
+                                {
+                                    results.Add(Convert.ToInt32(l));
+                                }
+                            }
+                            NumDone++;
+                            t[i].Abort();
+                            File.Delete(fn);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        //phuck your access exceptions
+                    }
+                }
+            }
+            Target.PriorityClass = ProcessPriorityClass.Normal;
+            return results;
+        }
+
+
+    }
+    class PatternScanThreads
+    {
         private volatile string sig;
         private volatile string mask;
         private volatile int assignedStart;
@@ -163,7 +220,8 @@ namespace SSL_Steam
 
         private volatile int threadNum;
         private volatile string name;
-        public PatternScanThreads(int _threadNum, string _name, string _sig, string _mask, int start, int end, bool _scanExecuteOnly, IntPtr _handle)
+        private volatile List<string> blocks;
+        public PatternScanThreads(int _threadNum, string _name, string _sig, string _mask, int start, int end, bool _scanExecuteOnly, IntPtr _handle, List<string> _blocks)
         {
             threadNum = _threadNum;
             sig = _sig;
@@ -173,10 +231,11 @@ namespace SSL_Steam
             handle = _handle;
             scanExecuteOnly = _scanExecuteOnly;
             name = _name;
+            blocks = _blocks;
         }
         public void Start()
         {
-            string fn = Environment.CurrentDirectory + string.Format("\\{0}.pstr.{1}",name,threadNum);
+            string fn = Environment.CurrentDirectory + string.Format("\\{0}.pstr.{1}", name, threadNum);
             if (File.Exists(fn)) File.Delete(fn);
             results = PatternScan();
             using (StreamWriter sw = new StreamWriter(fn))
@@ -198,40 +257,13 @@ namespace SSL_Steam
         {
             List<int> results = new List<int>();
             byte[] _sig = StringToByteArray(sig.Replace(" ", string.Empty));
-            SYSTEM_INFO sys_info = new SYSTEM_INFO();
-            GetSystemInfo(out sys_info);
-
-            IntPtr proc_min_address = sys_info.minimumApplicationAddress;
-
-            int proc_min_address_l = assignedStart;
-            int proc_max_address_l = assignedEnd;
-            
-            MEMORY_BASIC_INFORMATION mem_basic_info = new MEMORY_BASIC_INFORMATION();
-            while (proc_min_address_l < proc_max_address_l)
+            foreach(string b in blocks)
             {
-                VirtualQueryEx(handle, proc_min_address, out mem_basic_info, 28);
-                if (scanExecuteOnly)
+                string[] b_info = b.Split(';');
+                foreach(int r in ReadProcess(_sig, Convert.ToInt32(b_info[0]), Convert.ToInt32(b_info[1]), Convert.ToInt32(b_info[2])))
                 {
-                    if (mem_basic_info.Protect == 0x40 && mem_basic_info.State == MEM_COMMIT)
-                    {
-                        List<int> r = ReadProcess(mem_basic_info, _sig, proc_min_address_l);
-                        foreach (int res in r)
-                        {
-                            results.Add(res);
-                        }
-                    }
-                } else
-                {
-                    if (mem_basic_info.Protect == 0x04 && mem_basic_info.State == MEM_COMMIT)
-                    {
-                        List<int> r = ReadProcess(mem_basic_info, _sig, proc_min_address_l);
-                        foreach (int res in r) results.Add(res);
-                    }
+                    results.Add(r);
                 }
-                
-                // move to the next memory chunk
-                proc_min_address_l += mem_basic_info.RegionSize;
-                proc_min_address = new IntPtr(proc_min_address_l);
             }
             return results;
         }
@@ -239,43 +271,67 @@ namespace SSL_Steam
         {
             return !btPattern.Where((t, x) => strMask[x] != '?' && ((strMask[x] == 'x') && (t != block[nOffset + x]))).Any();
         }
-        private List<int> ReadProcess(MEMORY_BASIC_INFORMATION mbi, byte[] _sig, int proc_min_address_l)
+
+        [DllImport("kernel32.dll")]
+        public static extern bool ReadProcessMemory(int hProcess, int lpBaseAddress, byte[] lpBuffer, int dwSize, ref int lpNumberOfBytesRead);
+        private List<int> ReadProcess(byte[] _sig, int proc_min_address_l, int BaseAddress, int RegionSize)
         {
             List<int> results = new List<int>();
-            byte[] buffer = new byte[mbi.RegionSize];
+            byte[] buffer = new byte[RegionSize];
             int bytesRead = 0;
             // read everything in the buffer above
-            ReadProcessMemory((int)handle, mbi.BaseAddress, buffer, mbi.RegionSize, ref bytesRead);
-            int offset = FindPattern(_sig, mask, buffer);
+            ReadProcessMemory((int)handle, BaseAddress, buffer, RegionSize, ref bytesRead);
+            int offset = FindPattern(buffer, _sig);
             if (offset > 0)
             {
                 results.Add(proc_min_address_l + offset);
             }
             return results;
         }
-        private int FindPattern(byte[] btPattern, string strMask, byte[] block, int nOffset = 0)
+        private int FindPattern(byte[] haystack, byte[] needle)
         {
             try
             {
-                for (int x = 0; x < block.Length; x += 4)
+                int[] lookup = new int[256];
+                for (int i = 0; i < lookup.Length; i++) { lookup[i] = needle.Length; }
+
+                for (int i = 0; i < needle.Length; i++)
                 {
-                    if ((block.Length - x) < strMask.Length)
+                    lookup[needle[i]] = needle.Length - i - 1;
+                }
+
+                int index = needle.Length - 1;
+                var lastByte = needle.Last();
+                while (index < haystack.Length)
+                {
+                    var checkByte = haystack[index];
+                    if (haystack[index] == lastByte)
                     {
-                        continue;
+                        bool found = true;
+                        for (int j = needle.Length - 2; j >= 0; j--)
+                        {
+                            if (haystack[index - needle.Length + j + 1] != needle[j])
+                            {
+                                found = false;
+                                break;
+                            }
+                        }
+
+                        if (found)
+                            return index - needle.Length + 1;
+                        else
+                            index++;
                     }
                     else
                     {
-                        if (this.MaskCheck(x, btPattern, strMask, block))
-                        {
-                            return (x + nOffset);
-                        }
+                        index += lookup[checkByte];
                     }
                 }
-                return 0;
+                return -1;
             }
             catch (Exception)
             {
-                return 0;
+                return -1;
             }
         }
         private static byte[] StringToByteArray(String hex)

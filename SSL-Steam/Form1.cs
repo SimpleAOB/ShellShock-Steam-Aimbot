@@ -299,9 +299,12 @@ namespace SSL_Steam
             } else
             {
                 int da = SSCAS.DecidedAddress;
-                int Angle = GetProcInt("ShellShockLive", da);
-                int Strength = GetProcInt("ShellShockLive", da+4);
-                DrawTracer(Angle, Strength);
+                if (da != -1)
+                {
+                    int Angle = GetProcInt("ShellShockLive", da);
+                    int Strength = GetProcInt("ShellShockLive", da + 4);
+                    DrawTracer(Angle, Strength);
+                }
             }
         }
         private void AutoCbClick(object sender, EventArgs e)
@@ -895,6 +898,7 @@ namespace SSL_Steam
     class SigControlsAS
     {
         Button AskToScanBtn = new Button();
+        Button WrongAddressBtn = new Button();
         Label StatusLabel = new Label();
         SigManager sigMgr;
         Log SigLog = new Log("ssl-sig-as");
@@ -917,6 +921,12 @@ namespace SSL_Steam
             AskToScanBtn.Location = new Point(10, 230);
             AskToScanBtn.Size = new Size(120, 20);
             AskToScanBtn.BackColor = Color.Transparent;
+            WrongAddressBtn.Text = "Try Another Address";
+            WrongAddressBtn.Click += WrongAddressBtnClick;
+            WrongAddressBtn.Location = new Point(10, 250);
+            WrongAddressBtn.Size = new Size(120, 20);
+            WrongAddressBtn.BackColor = Color.Transparent;
+            WrongAddressBtn.Enabled = false;
             StatusLabel.Text = "Ready To Scan for Tracer";
             StatusLabel.Size = new Size(120, 40);
             StatusLabel.TextAlign = ContentAlignment.MiddleCenter;
@@ -943,6 +953,7 @@ namespace SSL_Steam
         {
             List<Control> cc = new List<Control>();
             cc.Add(AskToScanBtn);
+            cc.Add(WrongAddressBtn);
             cc.Add(StatusLabel);
             return cc;
         }
@@ -964,12 +975,15 @@ namespace SSL_Steam
         private void ScanBtnClick(object a, object b)
         {
             StatusText("Scan In Progress");
+            AddrList = new List<int>();
+            DecidedAddress = -1;
             AskToScanBtn.Enabled = false;
             if (sigMgr.ScanForSignatures("AngleStrength"))
             {
                 HasScanned = true;
                 DecideAddress();
                 AskToScanBtn.Enabled = true;
+                WrongAddressBtn.Enabled = true;
             }
             else
             {
@@ -989,19 +1003,30 @@ namespace SSL_Steam
             }
             else
             {
-                if (adrs.Count == 1)
-                {
-                    DecidedAddress = scanStart + adrs[0];
-                    string t = ((adrs[0].ToString("x8"))[7] == 'c') ? "a prefered" : "an";
-                    StatusText(string.Format("Found {0} address. Tracer enabled", t));
-                    Black(StatusLabel);
-                }
+                DecidedAddress = scanStart + adrs[0];
+                string t = ((adrs[0].ToString("x8"))[7] == 'c') ? "a prefered" : "an";
+                StatusText(string.Format("Found {0} address. Tracer enabled", t));
+                Black(StatusLabel);
             }
             AddrList = adrs;
         }
         public void DumpLog()
         {
             SigLog.Dump();
+        }
+
+        private void WrongAddressBtnClick(object a, object b)
+        {
+            InvalidAddress(DecidedAddress);
+        }
+        public void InvalidAddress(int addr)
+        {
+            int index = AddrList.IndexOf(addr);
+            if (index != -1)
+            {
+                AddrList.RemoveAt(index);
+            }
+            DecideAddress(true);
         }
     }
 }
